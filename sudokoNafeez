@@ -1,0 +1,396 @@
+import tkinter as tk
+from tkinter import messagebox
+import random
+import json
+import numpy as np
+from abc import ABC, abstractmethod
+from typing import List, Set, Dict, Tuple, Optional
+
+class LogicPuzzle(ABC):
+    def __init__(self, size: int):
+        self.size = size
+        self.grid = np.zeros((size, size), dtype=int)
+        self.constraints = {}
+        
+    @abstractmethod
+    def is_valid_placement(self, row: int, col: int, value: int) -> bool:
+        pass
+    
+    @abstractmethod
+    def get_domain(self, row: int, col: int) -> Set[int]:
+        pass
+    
+    def solve(self) -> bool:
+        """Main solving method using backtracking with constraint propagation"""
+        empty_cell = self._find_empty_cell()
+        if not empty_cell:
+            return True
+            
+        row, col = empty_cell
+        domain = self.get_domain(row, col)
+        
+        # Apply constraint propagation
+        if not self.propagate_constraints(row, col):
+            return False
+        
+        for value in domain:
+            if self.is_valid_placement(row, col, value):
+                self.grid[row][col] = value
+                
+                if self.solve():
+                    return True
+                    
+                self.grid[row][col] = 0
+                
+        return False
+    
+    def _find_empty_cell(self) -> Optional[Tuple[int, int]]:
+        """Find the next empty cell in the grid"""
+        for i in range(self.size):
+            for j in range(self.size):
+                if self.grid[i][j] == 0:
+                    return (i, j)
+        return None
+    
+    def propagate_constraints(self, row: int, col: int) -> bool:
+        """Apply constraint propagation to reduce domains"""
+        # Forward checking
+        for i in range(self.size):
+            for j in range(self.size):
+                if self.grid[i][j] == 0:
+                    domain = self.get_domain(i, j)
+                    if not domain:
+                        return False
+        return True
+
+class SudokuPuzzle(LogicPuzzle):
+    def __init__(self, initial_grid: List[List[int]]):
+        super().__init__(9)  # Sudoku is always 9x9
+        self.grid = np.array(initial_grid)
+        
+    def is_valid_placement(self, row: int, col: int, value: int) -> bool:
+        # Check row
+        if value in self.grid[row]:
+            return False
+            
+        # Check column
+        if value in self.grid[:, col]:
+            return False
+            
+        # Check 3x3 box
+        box_row, box_col = 3 * (row // 3), 3 * (col // 3)
+        box = self.grid[box_row:box_row + 3, box_col:box_col + 3]
+        if value in box:
+            return False
+            
+        return True
+    
+    def get_domain(self, row: int, col: int) -> Set[int]:
+        """Get all possible values for a cell using constraint propagation"""
+        domain = set(range(1, 10))
+        
+        # Remove values from row
+        domain -= set(self.grid[row])
+        
+        # Remove values from column
+        domain -= set(self.grid[:, col])
+        
+        # Remove values from 3x3 box
+        box_row, box_col = 3 * (row // 3), 3 * (col // 3)
+        box = self.grid[box_row:box_row + 3, box_col:box_col + 3]
+        domain -= set(box.flatten())
+        
+        return domain
+
+class KakuroPuzzle(LogicPuzzle):
+    def __init__(self, size: int, clues: Dict[Tuple[int, int], Tuple[int, int]]):
+        """
+        Initialize Kakuro puzzle
+        clues: Dict mapping (row, col) to (sum, length) for horizontal and vertical runs
+        """
+        super().__init__(size)
+        self.clues = clues
+        self.runs = self._build_runs()
+        
+    def _build_runs(self) -> List[List[Tuple[int, int]]]:
+        """Build lists of cells that form runs (horizontal and vertical)"""
+        runs = []
+        # Implementation for building runs based on clues
+        return runs
+    
+    def is_valid_placement(self, row: int, col: int, value: int) -> bool:
+        # Check if value is already used in the run
+        for run in self.runs:
+            if (row, col) in run:
+                run_values = [self.grid[r][c] for r, c in run if self.grid[r][c] != 0]
+                if value in run_values:
+                    return False
+                
+                # Check if sum exceeds the target
+                if sum(run_values) + value > self.clues[(row, col)][0]:
+                    return False
+                    
+        return True
+    
+    def get_domain(self, row: int, col: int) -> Set[int]:
+        """Get possible values for a cell using Kakuro rules"""
+        domain = set(range(1, 10))
+        
+        # Remove values already used in the run
+        for run in self.runs:
+            if (row, col) in run:
+                used_values = set(self.grid[r][c] for r, c in run if self.grid[r][c] != 0)
+                domain -= used_values
+                
+        return domain
+
+class LogicPuzzleGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Logic Puzzle Solver")
+        self.root.geometry("500x600")
+        
+        # Game variables
+        self.score = 0
+        self.high_score = self.load_high_score()
+        self.attempts = 3
+        self.current_puzzle = None
+        self.solution = None
+        self.puzzle_type = "sudoku"  # Default puzzle type
+        
+        # Create GUI elements
+        self.create_widgets()
+        
+        # Start first game
+        self.generate_new_puzzle()
+        
+    def create_widgets(self):
+        # Score and attempts display
+        self.score_frame = tk.Frame(self.root)
+        self.score_frame.pack(pady=10)
+        
+        self.score_label = tk.Label(self.score_frame, text=f"Score: {self.score}", font=('Arial', 12))
+        self.score_label.pack(side=tk.LEFT, padx=10)
+        
+        self.attempts_label = tk.Label(self.score_frame, text=f"Attempts: {self.attempts}", font=('Arial', 12))
+        self.attempts_label.pack(side=tk.LEFT, padx=10)
+        
+        self.high_score_label = tk.Label(self.score_frame, text=f"High Score: {self.high_score}", font=('Arial', 12))
+        self.high_score_label.pack(side=tk.LEFT, padx=10)
+        
+        # Puzzle type selection
+        self.type_frame = tk.Frame(self.root)
+        self.type_frame.pack(pady=5)
+        
+        tk.Label(self.type_frame, text="Puzzle Type:", font=('Arial', 12)).pack(side=tk.LEFT, padx=5)
+        self.type_var = tk.StringVar(value="sudoku")
+        tk.Radiobutton(self.type_frame, text="Sudoku", variable=self.type_var, 
+                      value="sudoku", command=self.change_puzzle_type).pack(side=tk.LEFT)
+        tk.Radiobutton(self.type_frame, text="Kakuro", variable=self.type_var, 
+                      value="kakuro", command=self.change_puzzle_type).pack(side=tk.LEFT)
+        
+        # Puzzle grid
+        self.grid_frame = tk.Frame(self.root)
+        self.grid_frame.pack(pady=20)
+        
+        # Create cells
+        self.cells = {}
+        for i in range(9):
+            for j in range(9):
+                cell_frame = tk.Frame(
+                    self.grid_frame,
+                    borderwidth=1,
+                    relief="solid",
+                    width=50,
+                    height=50
+                )
+                cell_frame.grid(row=i, column=j, padx=1, pady=1)
+                cell_frame.grid_propagate(False)
+                
+                # Make 3x3 boxes more visible
+                if i % 3 == 0 and i != 0:
+                    cell_frame.grid(pady=(3, 1))
+                if j % 3 == 0 and j != 0:
+                    cell_frame.grid(padx=(3, 1))
+                
+                cell = tk.Entry(
+                    cell_frame,
+                    font=('Arial', 18),
+                    justify='center',
+                    width=2
+                )
+                cell.place(relx=0.5, rely=0.5, anchor='center')
+                
+                # Store cell reference
+                self.cells[(i, j)] = cell
+                
+                # Bind validation
+                cell.bind('<KeyRelease>', lambda e, row=i, col=j: self.validate_input(e, row, col))
+        
+        # Buttons
+        self.button_frame = tk.Frame(self.root)
+        self.button_frame.pack(pady=20)
+        
+        self.check_button = tk.Button(self.button_frame, text="Check Solution", command=self.check_solution)
+        self.check_button.pack(side=tk.LEFT, padx=5)
+        
+        self.show_answer_button = tk.Button(self.button_frame, text="Show Answer", command=self.show_answer)
+        self.show_answer_button.pack(side=tk.LEFT, padx=5)
+        
+        self.new_game_button = tk.Button(self.button_frame, text="New Game", command=self.generate_new_puzzle)
+        self.new_game_button.pack(side=tk.LEFT, padx=5)
+        
+    def change_puzzle_type(self):
+        self.puzzle_type = self.type_var.get()
+        self.generate_new_puzzle()
+        
+    def load_high_score(self):
+        try:
+            with open('high_score.json', 'r') as f:
+                return json.load(f)['high_score']
+        except:
+            return 0
+            
+    def save_high_score(self):
+        with open('high_score.json', 'w') as f:
+            json.dump({'high_score': self.high_score}, f)
+            
+    def generate_new_puzzle(self):
+        # Clear all cells
+        for cell in self.cells.values():
+            cell.delete(0, tk.END)
+            cell.config(state='normal')
+        
+        if self.puzzle_type == "sudoku":
+            self.generate_sudoku_puzzle()
+        else:
+            self.generate_kakuro_puzzle()
+            
+    def generate_sudoku_puzzle(self):
+        # Generate a solved Sudoku puzzle
+        self.solution = self.generate_solved_sudoku()
+        
+        # Create puzzle by removing numbers
+        self.current_puzzle = self.solution.copy()
+        self.remove_numbers()
+        
+        # Display the puzzle
+        self.display_puzzle()
+        
+    def generate_kakuro_puzzle(self):
+        # Implementation for Kakuro puzzle generation
+        pass
+        
+    def generate_solved_sudoku(self):
+        # Start with empty grid
+        grid = np.zeros((9, 9), dtype=int)
+        
+        # Fill diagonal boxes first (they are independent)
+        for i in range(0, 9, 3):
+            box = list(range(1, 10))
+            random.shuffle(box)
+            for row in range(3):
+                for col in range(3):
+                    grid[i + row][i + col] = box.pop()
+        
+        # Solve the rest using backtracking
+        puzzle = SudokuPuzzle(grid.tolist())
+        puzzle.solve()
+        return puzzle.grid
+        
+    def remove_numbers(self):
+        # Remove numbers to create puzzle
+        positions = [(i, j) for i in range(9) for j in range(9)]
+        random.shuffle(positions)
+        
+        # Remove about 40-50 numbers
+        for i, j in positions[:45]:
+            self.current_puzzle[i][j] = 0
+            
+    def display_puzzle(self):
+        for i in range(9):
+            for j in range(9):
+                value = self.current_puzzle[i][j]
+                if value != 0:
+                    self.cells[(i, j)].insert(0, str(value))
+                    self.cells[(i, j)].config(state='readonly')
+                    
+    def validate_input(self, event, row, col):
+        cell = self.cells[(row, col)]
+        value = cell.get()
+        
+        # Allow only numbers 1-9
+        if value and not value.isdigit():
+            cell.delete(0, tk.END)
+        elif value and (int(value) < 1 or int(value) > 9):
+            cell.delete(0, tk.END)
+            
+    def get_current_grid(self):
+        grid = np.zeros((9, 9), dtype=int)
+        for i in range(9):
+            for j in range(9):
+                value = self.cells[(i, j)].get()
+                if value:
+                    grid[i][j] = int(value)
+        return grid
+        
+    def check_solution(self):
+        current_grid = self.get_current_grid()
+        if np.array_equal(current_grid, self.solution):
+            self.score += 1
+            if self.score > self.high_score:
+                self.high_score = self.score
+                self.save_high_score()
+            messagebox.showinfo("Correct!", "Congratulations! You solved the puzzle!")
+            self.update_labels()
+            self.generate_new_puzzle()
+        else:
+            self.attempts -= 1
+            self.update_labels()
+            if self.attempts <= 0:
+                self.game_over()
+            else:
+                messagebox.showinfo("Wrong!", f"Try again! {self.attempts} attempts remaining.")
+                
+    def show_answer(self):
+        for i in range(9):
+            for j in range(9):
+                cell = self.cells[(i, j)]
+                cell.config(state='normal')
+                cell.delete(0, tk.END)
+                cell.insert(0, str(self.solution[i][j]))
+                cell.config(state='readonly')
+        self.attempts -= 1
+        self.update_labels()
+        if self.attempts <= 0:
+            self.game_over()
+            
+    def game_over(self):
+        game_over_window = tk.Toplevel(self.root)
+        game_over_window.title("Game Over")
+        game_over_window.geometry("300x200")
+        
+        tk.Label(game_over_window, 
+                text=f"Game Over!\nFinal Score: {self.score}\nHigh Score: {self.high_score}", 
+                font=('Arial', 14)).pack(pady=20)
+        
+        tk.Button(game_over_window, 
+                 text="New Game", 
+                 command=lambda: [game_over_window.destroy(), self.reset_game()]).pack(pady=10)
+                 
+    def reset_game(self):
+        self.score = 0
+        self.attempts = 3
+        self.update_labels()
+        self.generate_new_puzzle()
+        
+    def update_labels(self):
+        self.score_label.config(text=f"Score: {self.score}")
+        self.attempts_label.config(text=f"Attempts: {self.attempts}")
+        self.high_score_label.config(text=f"High Score: {self.high_score}")
+
+# Create and run the game
+if __name__ == "__main__":
+    root = tk.Tk()
+    game = LogicPuzzleGUI(root)
+    root.mainloop()
